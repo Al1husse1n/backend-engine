@@ -144,6 +144,70 @@ def test_inventory_quantity_from_events(client):
     assert "17 shirts" in body["message"]
 
 
+def test_inventory_matches_singular_query_to_plural_stored_item(client):
+    post_event(
+        client,
+        {
+            "business_id": "business_123",
+            "language": "en",
+            "event_type": "purchase",
+            "data": {"item": "shirts", "quantity": 20, "amount": 5000, "currency": "ETB"},
+        },
+    )
+    body = post_query(client, "business_123", "How many shirt do I have?").json()
+    assert body["result"]["quantity"] == 20
+    assert body["result"]["item"] == "shirt"
+
+
+def test_inventory_matches_plural_query_to_singular_stored_item(client):
+    post_event(
+        client,
+        {
+            "business_id": "business_123",
+            "language": "en",
+            "event_type": "purchase",
+            "data": {"item": "shirt", "quantity": 20, "amount": 5000, "currency": "ETB"},
+        },
+    )
+    body = post_query(client, "business_123", "How many shirts do I have?").json()
+    assert body["result"]["quantity"] == 20
+    assert body["result"]["item"] == "shirts"
+
+
+def test_inventory_does_not_merge_unrelated_item_names(client):
+    post_event(
+        client,
+        {
+            "business_id": "business_123",
+            "language": "en",
+            "event_type": "purchase",
+            "data": {"item": "shirt", "quantity": 20, "amount": 5000, "currency": "ETB"},
+        },
+    )
+    body = post_query(client, "business_123", "How many shoe do I have?").json()
+    assert body["result"]["quantity"] == 0
+
+
+def test_inventory_plural_matching_preserves_purchase_sale_and_adjustment_calculation(client):
+    for event_type, quantity in (("purchase", 20), ("sale", 3), ("inventory_adjustment", -2)):
+        post_event(
+            client,
+            {
+                "business_id": "business_123",
+                "language": "en",
+                "event_type": event_type,
+                "data": {
+                    "item": "shirt",
+                    "quantity": quantity,
+                    "amount": 5000,
+                    "reason": "damaged" if event_type == "inventory_adjustment" else None,
+                },
+            },
+        )
+    body = post_query(client, "business_123", "How many shirts do I have?").json()
+    assert body["result"]["quantity"] == 15
+
+
 def test_customer_debt_specific_and_list(client):
     post_event(
         client,
