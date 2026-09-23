@@ -1,186 +1,152 @@
-Here is the updated `README.md` reflecting the new modular architecture, multi-tenancy, authentication, domain services, and integration capabilities.
-
----
-
-```markdown
 # backend-engine
 
 Backend service for the STARK Hackathon 2026 Voice-First Business Assistant.
 
-This API is the **deterministic source of truth** for business state and multi-tenant ledger management. It receives structured HTTP/JSON requests from client interfaces (web/mobile) and the **AI Engine** (`voxide` + `scholararchive`), validates business constraints, executes atomic domain operations, and persists accepted events.
+This API is the **source of truth** for business state. Clients send structured HTTP requests. The backend validates them, applies deterministic event handling, and persists accepted events.
 
-> **Note on Service Boundaries:** Speech-to-Text (STT), Text-to-Speech (TTS), and Large Language Model (LLM) intent parsing are explicitly **out of scope** for this repository. Natural language processing is handled externally by the `ai-engine` service, which emits normalized JSON payloads directly to this backend's execution endpoints.
+Speech-to-text and text-to-speech are out of scope for this service. Recording events is structured JSON. `POST /api/v1/query` includes limited deterministic **English keyword** interpretation for the MVP. It is not general-purpose natural-language understanding, does not use an LLM, and returns clarification when the question is unsupported or ambiguous.
 
----
+The shared request/response contract lives in [docs/API_CONTRACT.md](docs/API_CONTRACT.md). Integration notes for the frontend and Voxide live in [docs/CROSS_SERVICE_INTEGRATION.md](docs/CROSS_SERVICE_INTEGRATION.md). This README does not replace those documents.
 
-## Architecture & Project Structure
+## Stack
 
-The codebase is organized into domain-driven layers to ensure clear separation of concerns, scalability, and ease of testing.
+- Python 3.11+
+- FastAPI
+- SQLAlchemy 2
+- SQLite by default
+- Pydantic v2
 
-```text
-app/
-├── api/
-│   └── v1/
-│       ├── endpoints/         # FastAPI route handlers
-│       │   ├── auth.py          # Signup, Login, JWT issuing
-│       │   ├── users.py         # User profiles & permissions
-│       │   ├── business.py      # Multi-tenant business profiles
-│       │   ├── sales.py         # Sales event creation & retrieval
-│       │   ├── expenses.py      # Expense event logging
-│       │   ├── purchases.py     # Stock acquisition
-│       │   ├── inventory.py     # Current stock state & adjustments
-│       │   ├── debts.py         # Customer debt balances & tracking
-│       │   ├── analytics.py     # Calculated metrics (Totals, Margins)
-│       │   ├── payments.py      # Subscriptions & payment webhooks
-│       │   └── agent_gateway.py # High-speed execution gateway for AI Engine
-│       ├── dependencies.py    # Auth guards, DB sessions, Tenant context
-│       └── router.py          # Consolidated API Router
-├── core/                      # System configuration & setup
-│   ├── config.py              # Environment variables & Settings
-│   ├── db.py                  # SQLAlchemy async session factory & engine
-│   ├── security.py            # Password hashing (bcrypt) & JWT management
-│   └── errors.py              # Global exception handlers
-├── models/                    # SQLAlchemy Database Models (PostgreSQL/SQLite)
-│   ├── base.py                # Base class & audit mixins
-│   ├── user.py                # User & Role models
-│   ├── business.py            # Multi-tenant business boundary
-│   ├── ledger.py              # Sales, Expenses, Purchases, Customer Debts
-│   ├── inventory.py           # Products & Stock records
-│   └── payment.py             # Subscription logs
-├── schemas/                   # Pydantic v2 Models (Request/Response validation)
-│   ├── auth.py
-│   ├── user.py
-│   ├── business.py
-│   ├── ledger.py
-│   ├── inventory.py
-│   └── agent_event.py         # Schemas for incoming AI Engine JSON events
-└── services/                  # Deterministic Business Logic Execution
-    ├── events/
-    │   ├── sale_service.py    # Sales processing & atomic stock updates
-    │   ├── expense_service.py # Expense logging
-    │   ├── purchase_service.py# Inventory acquisition
-    │   └── debt_service.py   # Customer credit & repayment tracking
-    ├── analytics_service.py   # Deterministic calculations (Totals, Balances)
-    └── payment_service.py     # Subscription logic
+There is no authentication system and no LLM integration in this repository.
 
+## Setup
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+python -m app
 ```
 
----
+Open [http://localhost:8000/docs](http://localhost:8000/docs) for the interactive API.
 
-## Tech Stack
-
-* **Python 3.11+**
-* **FastAPI** — High-performance web framework
-* **SQLAlchemy 2.0** — Async ORM & Database abstraction
-* **Pydantic v2** — Data validation & settings management
-* **PostgreSQL / SQLite** — Relational database persistence
-* **Passlib & PyJWT** — Password hashing and JWT authentication
-
----
-
-## Environment Variables
-
-Copy `.env.example` to `.env` before running the application:
+## Environment variables
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | `sqlite+aiosqlite:///./data/app.db` | SQLAlchemy Async Database URL |
-| `SECRET_KEY` | `your-super-secret-jwt-key` | Secret key used for signing JWT tokens |
-| `ALGORITHM` | `HS256` | JWT encoding algorithm |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Token expiration time in minutes |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | SQLAlchemy database URL |
 | `HOST` | `0.0.0.0` | Bind address |
 | `PORT` | `8000` | Bind port |
-| `CORS_ORIGINS` | `*` | Allowed browser origins |
+| `CORS_ORIGINS` | `*` | Browser origins. `*` allows any origin **without** credentials. For production, set an explicit comma-separated list such as `http://localhost:3000,https://your-frontend.example` (credentials enabled only when origins are explicit). |
 
----
+Copy `.env.example` to `.env`. Do not commit secrets. This MVP does not require API keys.
 
-## Setup & Local Execution
+## Implemented endpoints
 
-### 1. Activate Virtual Environment
+- `POST /api/v1/events` — record a structured business event
+- `POST /api/v1/query` — ask about stored business state
+- `GET /api/v1/health` — liveness check
 
-```bash
-# macOS / Linux
-source venv/bin/activate
+Supported event types: `sale`, `expense`, `purchase`, `inventory_adjustment`, `customer_debt`.
 
-# Windows (PowerShell)
-.\venv\Scripts\Activate.ps1
-
-```
-
-### 2. Install Dependencies
+### Example request
 
 ```bash
-pip install -r requirements.txt
-
+curl -X POST http://localhost:8000/api/v1/events ^
+  -H "Content-Type: application/json" ^
+  -d "{\"business_id\":\"business_123\",\"language\":\"en\",\"event_type\":\"sale\",\"data\":{\"item\":\"shirts\",\"quantity\":3,\"amount\":900,\"currency\":\"ETB\",\"customer\":null,\"date\":\"2026-09-17\"}}"
 ```
 
-### 3. Run Development Server
+### Example success response
 
-```bash
-uvicorn app.main:app --reload --port 8000
-
-```
-
-Open [http://localhost:8000/docs](http://localhost:8000/docs?utm_source=gemini) for interactive Swagger documentation.
-
----
-
-## API & Gateway Usage
-
-### AI Engine Gateway (`POST /api/v1/agent-gateway`)
-
-This endpoint is optimized for high-speed execution calls coming from the `ai-engine` service after processing voice input.
-
-#### Example Event Payload:
-
-```json
-{
-  "business_id": "bus_987654",
-  "event_type": "sale",
-  "data": {
-    "item": "shirts",
-    "quantity": 3,
-    "amount": 900,
-    "currency": "ETB",
-    "customer": "Abebe",
-    "date": "2026-09-20"
-  }
-}
-
-```
-
-#### Example Success Response (`201 Created`):
+`201 Created`
 
 ```json
 {
   "success": true,
-  "event_id": "evt_12345",
-  "event_type": "sale",
-  "message": "Sale recorded successfully: 3 shirts for 900 ETB to Abebe.",
-  "data": {
-    "remaining_stock": 17
-  }
+  "event": {
+    "id": "event_123",
+    "event_type": "sale",
+    "data": {
+      "item": "shirts",
+      "quantity": 3,
+      "amount": 900,
+      "currency": "ETB",
+      "customer": null,
+      "date": "2026-09-17"
+    }
+  },
+  "message": "Sale recorded successfully: 3 shirts for 900 ETB."
 }
-
 ```
 
----
+Incomplete events return `needs_clarification`. Invalid values return `VALIDATION_ERROR`. Nothing is written until validation succeeds.
 
-## Core MVP Principles
+### Example query
 
-1. **Deterministic Execution:** Business metrics, stock deltas, and revenue totals are strictly calculated via code and SQL queries—never guessed or calculated by an LLM.
-2. **Multi-Tenant Data Isolation:** All financial and operational records are bound to a verified `business_id`.
-3. **Database as Single Source of Truth:** Unvalidated or ambiguous operations are rejected before writing to the database.
+```bash
+curl -X POST http://localhost:8000/api/v1/query ^
+  -H "Content-Type: application/json" ^
+  -d "{\"business_id\":\"business_123\",\"language\":\"en\",\"query\":\"How much did I sell today?\"}"
+```
 
----
+Example success response:
 
-## Running Tests
+```json
+{
+  "success": true,
+  "query_type": "sales_total",
+  "result": {
+    "amount": 4500,
+    "currency": "ETB",
+    "period": {
+      "start": "2026-09-17",
+      "end": "2026-09-17"
+    }
+  },
+  "message": "You sold 4,500 ETB today."
+}
+```
+
+Query answers are computed from persisted events after the text is mapped to a structured `QueryIntent`. The parser is a small English keyword/regex matcher (no LLM). Ambiguous or non-English questions return `needs_clarification` instead of a guessed total.
+
+## Tests
 
 ```bash
 python -m pytest
-
 ```
 
+## MVP assumptions
+
+- `business_id` is a client-supplied identifier, not an authenticated user. There is no login, signup, or tenant isolation beyond storing the provided ID on each event. The backend does not hard-code a demo business.
+- If `currency` is omitted on an event, it defaults to `ETB`. This is an MVP convenience, not a multi-currency system.
+- If `date` is omitted on an event, it defaults to the **server's current local calendar date** (`YYYY-MM-DD`). Query phrases such as "today" / "this week" / "this month" use that same server date. Timezones are **not** implemented; aligning the server clock (or passing dates from the client) is a future integration concern.
+- Inventory on hand is calculated at query time from the event log, with **case-insensitive, whitespace-normalized** item matching:
+  - `purchase`: +quantity
+  - `sale`: −quantity
+  - `inventory_adjustment`: +signed quantity
+  There is no separate inventory table in the live database. Item names that are also parser keywords (for example `today`, `left`, `cost`) are not treated as product names.
+- A sale does not create a customer debt. A purchase does not create an expense. Debt is derived only from `customer_debt` events.
+- Query interpretation is **English-only**. The `language` field is stored and accepted, but Amharic/Oromo (and other non-English values) are not parsed. Those requests return clarification rather than a guessed answer. `app/services/extraction.py` remains a placeholder for a later recording-side extractor. Multilingual NLP is out of scope.
+
+## Architecture
+
+```text
+HTTP request
+  → validation
+  → event handler or query engine
+  → append-only events table
+  → structured response
 ```
 
-```
+New event types can be added by registering a handler. They do not need a new HTTP resource.
+
+## Not part of the running API
+
+Some files from an unfinished follow-up are still in the tree. They are not mounted and are not a second API:
+
+- Empty modules under `app/api/v1/endpoints/` (`auth`, `users`, `sales`, `expenses`, and the other domain files) and `app/api/v1/router.py`.
+- `app/core/` (async engine, JWT helpers). Those modules are not imported by `app.main`, and the security helper depends on packages that are not in `requirements.txt`.
+- `Business`, `InventoryItem`, and `EventLog` in `app/models/`. They sit on `RelationalBase`. `init_db()` creates only the `events` table.
+
+There is no `POST /api/v1/agent-gateway` route.

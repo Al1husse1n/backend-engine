@@ -3,11 +3,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import engine
 
 from app.api.v1 import api_router
 from app.config import settings
-from app.db import Base, init_db
+from app.db import init_db
 from app.errors import (
     AppError,
     NeedsClarification,
@@ -44,18 +43,6 @@ app.add_exception_handler(AppError, app_error_handler)
 app.add_exception_handler(NeedsClarification, clarification_handler)
 app.add_exception_handler(RequestValidationError, request_validation_handler)
 app.include_router(api_router)
-
-
-
-# Include Router
-app.include_router(api_router, prefix=settings.API_V1_STR)
-
-
-
-@app.on_event("startup")
-async def startup():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
 
 
 @app.get("/")

@@ -1,21 +1,27 @@
-from datetime import datetime, timedelta
-from typing import Optional, Any, Union
-from passlib.context import CryptContext
-from jose import jwt
-from app.core.config import settings
+"""Base for the unfinished relational sketches in this package.
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+Not the live database. init_db creates tables only from app.db.Base, which
+holds the events log. These classes are not imported there.
+"""
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+from datetime import datetime, timezone
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+from sqlalchemy import DateTime
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-def create_access_token(subject: Union[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode = {"exp": expire, "sub": str(subject)}
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class RelationalBase(DeclarativeBase):
+    pass
+
+
+class AuditMixin:
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )

@@ -1,10 +1,9 @@
 from sqlalchemy import String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime
-from app.core.db import Base
-from app.models.base import AuditMixin
+from app.models.base import AuditMixin, RelationalBase
 
-class EventLog(Base, AuditMixin):
+class EventLog(RelationalBase, AuditMixin):
     __tablename__ = "event_logs"
 
     id: Mapped[str] = mapped_column(String, primary_key=True, index=True)
