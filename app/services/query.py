@@ -76,6 +76,8 @@ CUSTOMER_STOPWORDS = {
     "we",
 }
 
+_SINGULAR_WORD_ENDINGS = ("ss", "us", "is", "ws")
+
 
 @dataclass(frozen=True)
 class QueryIntent:
@@ -128,6 +130,14 @@ def _detect_customer(original: str) -> str | None:
     if name.lower() in CUSTOMER_STOPWORDS:
         return None
     return name
+
+
+def _normalize_item_name(name: str) -> str:
+    """Normalize only conservative regular English item plurals."""
+    key = normalize_key(name)
+    if len(key) > 3 and key.endswith("s") and not key.endswith(_SINGULAR_WORD_ENDINGS):
+        return key[:-1]
+    return key
 
 
 def _detect_item(text: str, known_items: list[str]) -> str | None:
@@ -345,15 +355,15 @@ def _sum_amounts(events: list[Event], event_type: str, start: date | None, end: 
 
 
 def _inventory_quantity(events: list[Event], item: str) -> float:
-    """On-hand quantity for one item, matched case-insensitively.
+    """On-hand quantity for one item, matched by conservative item normalization.
 
     purchase +quantity, sale -quantity, inventory_adjustment +signed quantity.
     """
-    item_key = normalize_key(item)
+    item_key = _normalize_item_name(item)
     quantity = 0.0
     for event in events:
         event_item = event.data.get("item") if isinstance(event.data, dict) else None
-        if not isinstance(event_item, str) or normalize_key(event_item) != item_key:
+        if not isinstance(event_item, str) or _normalize_item_name(event_item) != item_key:
             continue
         qty = _as_amount(event.data.get("quantity"))
         if event.event_type == "purchase":
