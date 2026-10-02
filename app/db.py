@@ -2,6 +2,7 @@ from collections.abc import Generator
 from pathlib import Path
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.config import settings
@@ -22,8 +23,18 @@ def _ensure_sqlite_directory(url: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def create_db_engine(url: str | None = None):
+def _normalize_database_url(url: str) -> str:
+    """Use the maintained psycopg driver for PostgreSQL URLs."""
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgres://")
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url.removeprefix("postgresql://")
+    return url
+
+
+def create_db_engine(url: str | None = None) -> Engine:
     database_url = url or settings.database_url
+    database_url = _normalize_database_url(database_url)
     _ensure_sqlite_directory(database_url)
     connect_args = {}
     engine_kwargs = {"future": True}

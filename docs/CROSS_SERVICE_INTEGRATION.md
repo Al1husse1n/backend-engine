@@ -24,11 +24,11 @@ Labels used below:
 
 STARK Hackathon 2026. The product is a voice-first business assistant for a small business. Three services share one business API:
 
-| Service | Owns | Does not own |
-| --- | --- | --- |
-| Backend (`backend-engine`) | Validation, business rules, persistence, deterministic totals, stock, and debt | Speech, TTS, LLM intent parsing |
-| Voxide | Speech-to-text, text-to-speech, voice turn-taking, turning speech into the JSON this API already accepts | Ledger totals, stock math, debt balances, the database |
-| Frontend | Text and voice UI, language selection, showing backend `message` / clarification / errors | Business rules and stored business state |
+| Service                    | Owns                                                                                                     | Does not own                                           |
+| -------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Backend (`backend-engine`) | Validation, business rules, persistence, deterministic totals, stock, and debt                           | Speech, TTS, LLM intent parsing                        |
+| Voxide                     | Speech-to-text, text-to-speech, voice turn-taking, turning speech into the JSON this API already accepts | Ledger totals, stock math, debt balances, the database |
+| Frontend                   | Text and voice UI, language selection, showing backend `message` / clarification / errors                | Business rules and stored business state               |
 
 The backend is the source of truth. LLM memory, the frontend, and Voxide state are not.
 
@@ -42,12 +42,12 @@ There is **no authentication**. `business_id` is a client-supplied string. The l
 
 The core API from pull request #1 is still the only API:
 
-| Method | Path | Role |
-| --- | --- | --- |
-| `GET` | `/` | Service banner. Returns `service`, `docs`, `health`. |
-| `GET` | `/api/v1/health` | Liveness. Body: `{"status": "ok"}`. |
-| `POST` | `/api/v1/events` | Validate and append one business event. `201` on success. |
-| `POST` | `/api/v1/query` | English keyword question against stored events. `200` on success. |
+| Method | Path             | Role                                                              |
+| ------ | ---------------- | ----------------------------------------------------------------- |
+| `GET`  | `/`              | Service banner. Returns `service`, `docs`, `health`.              |
+| `GET`  | `/api/v1/health` | Liveness. Body: `{"status": "ok"}`.                               |
+| `POST` | `/api/v1/events` | Validate and append one business event. `201` on success.         |
+| `POST` | `/api/v1/query`  | English keyword question against stored events. `200` on success. |
 
 Supported event types: `sale`, `expense`, `purchase`, `inventory_adjustment`, `customer_debt`.
 
@@ -60,7 +60,10 @@ Supported query types, chosen by an English keyword parser (not an LLM):
 - `inventory_quantity`
 - `customer_debt`
 
-Persistence is one append-only SQLite table, `events`. Inventory quantity and customer balances are **calculated from those rows at query time**. They are not stored as current balances.
+Persistence is one append-only `events` table. Production uses Supabase
+PostgreSQL through `DATABASE_URL`; SQLite remains the local development
+fallback. Inventory quantity and customer balances are **calculated from
+those rows at query time**. They are not stored as current balances.
 
 Natural-language **questions** are interpreted inside the backend (`app/services/query.py`). Natural-language **commands** are not. `app/services/extraction.py` is only a `Protocol`. Callers must already send structured event JSON.
 
@@ -142,17 +145,17 @@ POST /query
     sum or derive from those rows
 ```
 
-| Module | Role |
-| --- | --- |
-| `app/config.py` | Live settings. Env file `.env`. Unknown env vars ignored. |
-| `app/db.py` | Sync SQLAlchemy engine, session, `create_all`. Default URL `sqlite:///./data/app.db`. |
-| `app/models/event.py` | Live model, `Event`, table `events`. Exported from `app/models`. |
-| `app/schemas.py` | Request and success models for events and queries. |
-| `app/errors.py` | `VALIDATION_ERROR` and `NEEDS_CLARIFICATION` JSON. |
-| `app/services/normalization.py` | Numbers, dates, currency, blank checks. Default currency `ETB`. |
-| `app/services/events/*.py` | One handler per event type. This is the business logic. |
-| `app/services/query.py` | English parser plus deterministic answers. |
-| `app/services/extraction.py` | Interface only. No extractor is implemented. |
+| Module                          | Role                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `app/config.py`                 | Live settings. Env file `.env`. Unknown env vars ignored.                             |
+| `app/db.py`                     | Sync SQLAlchemy engine, session, `create_all`. Default URL `sqlite:///./data/app.db`. |
+| `app/models/event.py`           | Live model, `Event`, table `events`. Exported from `app/models`.                      |
+| `app/schemas.py`                | Request and success models for events and queries.                                    |
+| `app/errors.py`                 | `VALIDATION_ERROR` and `NEEDS_CLARIFICATION` JSON.                                    |
+| `app/services/normalization.py` | Numbers, dates, currency, blank checks. Default currency `ETB`.                       |
+| `app/services/events/*.py`      | One handler per event type. This is the business logic.                               |
+| `app/services/query.py`         | English parser plus deterministic answers.                                            |
+| `app/services/extraction.py`    | Interface only. No extractor is implemented.                                          |
 
 `get_db()` commits on success and rolls back on exception. A clarification or validation error does not leave a row.
 
@@ -160,14 +163,14 @@ POST /query
 
 Table `events` (append-only):
 
-| Column | Type | Notes |
-| --- | --- | --- |
-| `id` | string PK | `event_` + UUID |
-| `business_id` | string, indexed | Client-supplied. No `businesses` table. |
-| `event_type` | string, indexed | One of the five supported types. |
-| `language` | string | Stored. Not used by calculation. |
-| `data` | JSON | Normalized event fields. |
-| `created_at` | timezone-aware datetime | Insert time. Queries do **not** filter on this. |
+| Column        | Type                    | Notes                                           |
+| ------------- | ----------------------- | ----------------------------------------------- |
+| `id`          | string PK               | `event_` + UUID                                 |
+| `business_id` | string, indexed         | Client-supplied. No `businesses` table.         |
+| `event_type`  | string, indexed         | One of the five supported types.                |
+| `language`    | string                  | Stored. Not used by calculation.                |
+| `data`        | JSON                    | Normalized event fields.                        |
+| `created_at`  | timezone-aware datetime | Insert time. Queries do **not** filter on this. |
 
 There is no users table, no stock table, no debt table, and no payments table in the live schema.
 
@@ -206,12 +209,12 @@ Mixed currencies in one answer collapse to `ETB` unless every matched row has th
 
 Two different failures:
 
-| Situation | HTTP | Body |
-| --- | --- | --- |
-| Required information missing | 400 | `success: false`, `status: "needs_clarification"`, `message`, `missing_fields`, and `error.code: "NEEDS_CLARIFICATION"` |
-| Value present but illegal, or unsupported event type | 400 | `success: false`, `error.code: "VALIDATION_ERROR"`, `error.message`. No `missing_fields`. |
-| FastAPI missing top-level JSON fields (`business_id`, `language`, `event_type`, or `query`) | 400 | Clarification shape, `missing_fields` lists those names, message `"Required information is missing."` |
-| Other malformed JSON (extra fields, wrong types at the top level) | 400 | `VALIDATION_ERROR` and the first Pydantic message |
+| Situation                                                                                   | HTTP | Body                                                                                                                    |
+| ------------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| Required information missing                                                                | 400  | `success: false`, `status: "needs_clarification"`, `message`, `missing_fields`, and `error.code: "NEEDS_CLARIFICATION"` |
+| Value present but illegal, or unsupported event type                                        | 400  | `success: false`, `error.code: "VALIDATION_ERROR"`, `error.message`. No `missing_fields`.                               |
+| FastAPI missing top-level JSON fields (`business_id`, `language`, `event_type`, or `query`) | 400  | Clarification shape, `missing_fields` lists those names, message `"Required information is missing."`                   |
+| Other malformed JSON (extra fields, wrong types at the top level)                           | 400  | `VALIDATION_ERROR` and the first Pydantic message                                                                       |
 
 Event `data` is a free object at the schema layer (`extra` is forbidden only on the **outer** request). Handlers then require the fields for that event type.
 
@@ -238,12 +241,12 @@ Clarification examples that are tested:
 
 Periods:
 
-| Phrase | Window |
-| --- | --- |
-| `today`, `tonight` | That calendar day |
-| `this week`, `the week` | Monday through today (`date.weekday()`, Monday = 0) |
-| `this month`, `the month` | First of the month through today |
-| anything else | All stored dates |
+| Phrase                    | Window                                              |
+| ------------------------- | --------------------------------------------------- |
+| `today`, `tonight`        | That calendar day                                   |
+| `this week`, `the week`   | Monday through today (`date.weekday()`, Monday = 0) |
+| `this month`, `the month` | First of the month through today                    |
+| anything else             | All stored dates                                    |
 
 “Week” is not the last 7 days. There is no custom date range in the query language.
 
@@ -258,7 +261,7 @@ These were described by the pre-repair README. They are still not served, not en
 - Signup, login, JWT, password hashing, roles
 - `POST /api/v1/agent-gateway`
 - Per-resource routes for users, businesses, sales, expenses, purchases, inventory, debts, analytics, payments
-- PostgreSQL as a configured default (the live default is SQLite; a URL can be swapped via `DATABASE_URL`)
+- Alembic migrations (the current MVP creates the live `events` table with SQLAlchemy `create_all` at startup)
 - Async SQLAlchemy runtime
 - Subscriptions
 - Stock row updates and `remaining_stock`
@@ -319,12 +322,12 @@ Records one event after validation. Does not interpret a sentence. Does not upda
 }
 ```
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `business_id` | yes | Non-empty string. Whitespace-only is `VALIDATION_ERROR`. Not checked against a registry. |
-| `language` | yes | Non-empty string. Stored. Any language code is accepted on this endpoint. |
-| `event_type` | yes | `sale`, `expense`, `purchase`, `inventory_adjustment`, `customer_debt`. Anything else: `VALIDATION_ERROR` listing the supported types. |
-| `data` | yes as an object | Defaults to `{}` if omitted, then the handler asks for its required fields. |
+| Field         | Required         | Rule                                                                                                                                   |
+| ------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `business_id` | yes              | Non-empty string. Whitespace-only is `VALIDATION_ERROR`. Not checked against a registry.                                               |
+| `language`    | yes              | Non-empty string. Stored. Any language code is accepted on this endpoint.                                                              |
+| `event_type`  | yes              | `sale`, `expense`, `purchase`, `inventory_adjustment`, `customer_debt`. Anything else: `VALIDATION_ERROR` listing the supported types. |
+| `data`        | yes as an object | Defaults to `{}` if omitted, then the handler asks for its required fields.                                                            |
 
 Unknown top-level fields are rejected (`extra: forbid`).
 
@@ -353,50 +356,50 @@ Unknown top-level fields are rejected (`extra: forbid`).
 
 #### Sale `data`
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `item` | yes | Non-empty string. Prompt: “Which item was sold?” |
-| `quantity` | yes | Number > 0. Zero or negative: `VALIDATION_ERROR`. |
-| `amount` | yes | Number > 0. This is the money total for the line, not a unit price. |
-| `currency` | no | Default `ETB`. |
-| `customer` | no | String or null. Blank becomes null. |
-| `date` | no | `YYYY-MM-DD` or server today. |
+| Field      | Required | Rule                                                                |
+| ---------- | -------- | ------------------------------------------------------------------- |
+| `item`     | yes      | Non-empty string. Prompt: “Which item was sold?”                    |
+| `quantity` | yes      | Number > 0. Zero or negative: `VALIDATION_ERROR`.                   |
+| `amount`   | yes      | Number > 0. This is the money total for the line, not a unit price. |
+| `currency` | no       | Default `ETB`.                                                      |
+| `customer` | no       | String or null. Blank becomes null.                                 |
+| `date`     | no       | `YYYY-MM-DD` or server today.                                       |
 
 Success message: `Sale recorded successfully: {quantity} {item} for {amount} {currency}.`
 
 #### Expense `data`
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `description` | yes | “What was the expense for?” |
-| `amount` | yes | > 0 |
-| `currency` | no | Default `ETB` |
-| `category` | no | String or null |
-| `date` | no | ISO date or today |
+| Field         | Required | Rule                        |
+| ------------- | -------- | --------------------------- |
+| `description` | yes      | “What was the expense for?” |
+| `amount`      | yes      | > 0                         |
+| `currency`    | no       | Default `ETB`               |
+| `category`    | no       | String or null              |
+| `date`        | no       | ISO date or today           |
 
 Success message: `Expense recorded successfully: {amount} {currency} for {description}.`
 
 #### Purchase `data`
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `item` | yes | “Which item was purchased?” |
-| `quantity` | yes | > 0. This increases derived stock. |
-| `amount` | yes | > 0. Money spent, not a unit cost used later. |
-| `currency` | no | Default `ETB` |
-| `supplier` | no | String or null |
-| `date` | no | ISO date or today |
+| Field      | Required | Rule                                          |
+| ---------- | -------- | --------------------------------------------- |
+| `item`     | yes      | “Which item was purchased?”                   |
+| `quantity` | yes      | > 0. This increases derived stock.            |
+| `amount`   | yes      | > 0. Money spent, not a unit cost used later. |
+| `currency` | no       | Default `ETB`                                 |
+| `supplier` | no       | String or null                                |
+| `date`     | no       | ISO date or today                             |
 
 Success message: `Purchase recorded successfully: {quantity} {item} for {amount} {currency}.`
 
 #### Inventory adjustment `data`
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `item` | yes | “Which item should be adjusted?” |
-| `quantity` | yes | Non-zero number. Positive adds, negative removes. Zero is `VALIDATION_ERROR`. |
-| `reason` | yes | “Why is inventory being adjusted?” |
-| `date` | no | ISO date or today |
+| Field      | Required | Rule                                                                          |
+| ---------- | -------- | ----------------------------------------------------------------------------- |
+| `item`     | yes      | “Which item should be adjusted?”                                              |
+| `quantity` | yes      | Non-zero number. Positive adds, negative removes. Zero is `VALIDATION_ERROR`. |
+| `reason`   | yes      | “Why is inventory being adjusted?”                                            |
+| `date`     | no       | ISO date or today                                                             |
 
 No amount and no currency.
 
@@ -404,13 +407,13 @@ Success message: `Inventory adjustment recorded: {item} increased|decreased by {
 
 #### Customer debt `data`
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `customer` | yes | “Which customer is this debt for?” |
-| `amount` | yes | > 0 |
-| `direction` | yes | Exactly `owed_to_business` or `owed_by_business`. Other values: `VALIDATION_ERROR`. |
-| `currency` | no | Default `ETB` |
-| `date` | no | ISO date or today |
+| Field       | Required | Rule                                                                                |
+| ----------- | -------- | ----------------------------------------------------------------------------------- |
+| `customer`  | yes      | “Which customer is this debt for?”                                                  |
+| `amount`    | yes      | > 0                                                                                 |
+| `direction` | yes      | Exactly `owed_to_business` or `owed_by_business`. Other values: `VALIDATION_ERROR`. |
+| `currency`  | no       | Default `ETB`                                                                       |
+| `date`      | no       | ISO date or today                                                                   |
 
 There is no separate “payment” event. Recording the opposite direction reduces the net the next time debt is queried. Sending the same direction again **adds** another amount; it does not replace the balance.
 
@@ -462,11 +465,11 @@ When several fields are missing, `missing_fields` lists all of them. `message` a
 }
 ```
 
-| Field | Required | Rule |
-| --- | --- | --- |
-| `business_id` | yes | Non-empty. Scopes every read. |
-| `language` | yes | Must be English for parsing to run. |
-| `query` | yes | Non-empty English question. |
+| Field         | Required | Rule                                |
+| ------------- | -------- | ----------------------------------- |
+| `business_id` | yes      | Non-empty. Scopes every read.       |
+| `language`    | yes      | Must be English for parsing to run. |
+| `query`       | yes      | Non-empty English question.         |
 
 #### Success — `200`
 
@@ -549,9 +552,7 @@ Message: `You have 17 shirts left.` The `item` string is the name as previously 
 
 ```json
 {
-  "customers": [
-    { "customer": "Hana", "amount": 600, "currency": "ETB" }
-  ],
+  "customers": [{ "customer": "Hana", "amount": 600, "currency": "ETB" }],
   "total": 600,
   "currency": "ETB"
 }
@@ -599,15 +600,15 @@ Small behaviors that are easy to miss, all from the original implementation (not
 
 Each write is one row in `events`. Nothing here is idempotent. A retried voice turn creates a second row.
 
-| Operation | Required data | Optional | Persistence | Derived state | Safe for voice without confirmation? |
-| --- | --- | --- | --- | --- | --- |
-| Record sale | `item`, `quantity` > 0, `amount` > 0 | `currency`, `customer`, `date` | Append `sale` | Lowers derived stock by `quantity`. Adds to sales totals. Does not create a debt. | **No.** Confirm, then `POST /events`. |
-| Record expense | `description`, `amount` > 0 | `currency`, `category`, `date` | Append `expense` | Adds to expense totals. Does not change stock. | **No.** |
-| Record purchase | `item`, `quantity` > 0, `amount` > 0 | `currency`, `supplier`, `date` | Append `purchase` | Raises derived stock. Adds to purchase totals. Distinct from expenses. | **No.** |
-| Adjust inventory | `item`, non-zero `quantity`, `reason` | `date` | Append `inventory_adjustment` | Adds signed quantity to stock. | **No.** |
-| Record customer debt | `customer`, `amount` > 0, `direction` | `currency`, `date` | Append `customer_debt` | Recomputes that customer’s net. Does not change stock or sales. | **No.** |
-| Ask a question | English `query`, `business_id`, `language: "en"` | — | Nothing | Reads and sums events | **Yes.** Call `POST /query` directly. |
-| Health | — | — | Nothing | — | **Yes.** |
+| Operation            | Required data                                    | Optional                       | Persistence                   | Derived state                                                                     | Safe for voice without confirmation?  |
+| -------------------- | ------------------------------------------------ | ------------------------------ | ----------------------------- | --------------------------------------------------------------------------------- | ------------------------------------- |
+| Record sale          | `item`, `quantity` > 0, `amount` > 0             | `currency`, `customer`, `date` | Append `sale`                 | Lowers derived stock by `quantity`. Adds to sales totals. Does not create a debt. | **No.** Confirm, then `POST /events`. |
+| Record expense       | `description`, `amount` > 0                      | `currency`, `category`, `date` | Append `expense`              | Adds to expense totals. Does not change stock.                                    | **No.**                               |
+| Record purchase      | `item`, `quantity` > 0, `amount` > 0             | `currency`, `supplier`, `date` | Append `purchase`             | Raises derived stock. Adds to purchase totals. Distinct from expenses.            | **No.**                               |
+| Adjust inventory     | `item`, non-zero `quantity`, `reason`            | `date`                         | Append `inventory_adjustment` | Adds signed quantity to stock.                                                    | **No.**                               |
+| Record customer debt | `customer`, `amount` > 0, `direction`            | `currency`, `date`             | Append `customer_debt`        | Recomputes that customer’s net. Does not change stock or sales.                   | **No.**                               |
+| Ask a question       | English `query`, `business_id`, `language: "en"` | —                              | Nothing                       | Reads and sums events                                                             | **Yes.** Call `POST /query` directly. |
+| Health               | —                                                | —                              | Nothing                       | —                                                                                 | **Yes.**                              |
 
 **Recommendation:** confirmation applies to every `POST /events` call. Read-only calls do not need confirmation. The backend itself will persist as soon as validation passes; it has no confirm/cancel step.
 
@@ -630,16 +631,16 @@ Operations the backend will reject or cannot do:
 
 ## Data and state ownership
 
-| Concern | Source of truth | Who may interpret | Who must validate, calculate, and persist |
-| --- | --- | --- | --- |
-| Sales | `events` where `event_type = sale` | Voxide may extract item, quantity, amount, customer, date from speech | Backend validates and inserts. Totals come only from `POST /query`. |
-| Expenses | `events` where `event_type = expense` | Voxide may extract description, amount, category, date | Backend |
-| Purchases | `events` where `event_type = purchase` | Voxide may extract item, quantity, amount, supplier, date | Backend. Purchase money is not an expense. |
-| Inventory | Derived from purchase, sale, and adjustment quantities | Voxide may extract the adjustment the user asked for | Backend. Voxide must not keep a stock cache as truth. |
-| Customer debts | Derived net of `customer_debt` rows | Voxide may extract customer, amount, and direction | Backend. Voxide must not keep a balance cache as truth. |
-| Query answers | Computed on read from the rows above | Voxide may turn speech into an English question string | Backend parser + SQL/Python sums. The `message` is the verified sentence. |
-| Business identity | The `business_id` string the client sends | Frontend/Voxide must send the same id the user is operating as | Backend does not authenticate it. |
-| Language of the conversation | Not business state | Voxide and frontend | Stored on events only. Query parsing requires English text and `language: "en"`. |
+| Concern                      | Source of truth                                        | Who may interpret                                                     | Who must validate, calculate, and persist                                        |
+| ---------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Sales                        | `events` where `event_type = sale`                     | Voxide may extract item, quantity, amount, customer, date from speech | Backend validates and inserts. Totals come only from `POST /query`.              |
+| Expenses                     | `events` where `event_type = expense`                  | Voxide may extract description, amount, category, date                | Backend                                                                          |
+| Purchases                    | `events` where `event_type = purchase`                 | Voxide may extract item, quantity, amount, supplier, date             | Backend. Purchase money is not an expense.                                       |
+| Inventory                    | Derived from purchase, sale, and adjustment quantities | Voxide may extract the adjustment the user asked for                  | Backend. Voxide must not keep a stock cache as truth.                            |
+| Customer debts               | Derived net of `customer_debt` rows                    | Voxide may extract customer, amount, and direction                    | Backend. Voxide must not keep a balance cache as truth.                          |
+| Query answers                | Computed on read from the rows above                   | Voxide may turn speech into an English question string                | Backend parser + SQL/Python sums. The `message` is the verified sentence.        |
+| Business identity            | The `business_id` string the client sends              | Frontend/Voxide must send the same id the user is operating as        | Backend does not authenticate it.                                                |
+| Language of the conversation | Not business state                                     | Voxide and frontend                                                   | Stored on events only. Query parsing requires English text and `language: "en"`. |
 
 Voxide should interpret **intent and slots**. It should not decide that a number is “valid enough” to skip the backend, and it should not compute “you have 17 left” itself.
 
@@ -686,62 +687,62 @@ Shared arguments the caller adds, not the user:
 
 #### `record_sale` — confirmation required
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `item` | yes | `data.item` |
-| `quantity` | yes | `data.quantity` |
-| `amount` | yes | `data.amount` (line total) |
-| `currency` | no | `data.currency` (omit to let the backend default ETB) |
-| `customer` | no | `data.customer` |
-| `date` | no | `data.date` as `YYYY-MM-DD` only |
+| Argument   | Required | Maps to                                               |
+| ---------- | -------- | ----------------------------------------------------- |
+| `item`     | yes      | `data.item`                                           |
+| `quantity` | yes      | `data.quantity`                                       |
+| `amount`   | yes      | `data.amount` (line total)                            |
+| `currency` | no       | `data.currency` (omit to let the backend default ETB) |
+| `customer` | no       | `data.customer`                                       |
+| `date`     | no       | `data.date` as `YYYY-MM-DD` only                      |
 
 `POST /api/v1/events` with `event_type: "sale"`.
 
 #### `record_expense` — confirmation required
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `description` | yes | `data.description` |
-| `amount` | yes | `data.amount` |
-| `currency` | no | `data.currency` |
-| `category` | no | `data.category` |
-| `date` | no | `data.date` |
+| Argument      | Required | Maps to            |
+| ------------- | -------- | ------------------ |
+| `description` | yes      | `data.description` |
+| `amount`      | yes      | `data.amount`      |
+| `currency`    | no       | `data.currency`    |
+| `category`    | no       | `data.category`    |
+| `date`        | no       | `data.date`        |
 
 `event_type: "expense"`.
 
 #### `record_purchase` — confirmation required
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `item` | yes | `data.item` |
-| `quantity` | yes | `data.quantity` |
-| `amount` | yes | `data.amount` |
-| `currency` | no | `data.currency` |
-| `supplier` | no | `data.supplier` |
-| `date` | no | `data.date` |
+| Argument   | Required | Maps to         |
+| ---------- | -------- | --------------- |
+| `item`     | yes      | `data.item`     |
+| `quantity` | yes      | `data.quantity` |
+| `amount`   | yes      | `data.amount`   |
+| `currency` | no       | `data.currency` |
+| `supplier` | no       | `data.supplier` |
+| `date`     | no       | `data.date`     |
 
 `event_type: "purchase"`. Do not also send an expense for the same stock buy unless the user described a separate operating cost.
 
 #### `adjust_inventory` — confirmation required
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `item` | yes | `data.item` |
-| `quantity` | yes | `data.quantity` (signed) |
-| `reason` | yes | `data.reason` |
-| `date` | no | `data.date` |
+| Argument   | Required | Maps to                  |
+| ---------- | -------- | ------------------------ |
+| `item`     | yes      | `data.item`              |
+| `quantity` | yes      | `data.quantity` (signed) |
+| `reason`   | yes      | `data.reason`            |
+| `date`     | no       | `data.date`              |
 
 `event_type: "inventory_adjustment"`. “Two shirts were damaged” is `quantity: -2`, not a sale and not an expense.
 
 #### `record_customer_debt` — confirmation required
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `customer` | yes | `data.customer` |
-| `amount` | yes | `data.amount` |
-| `direction` | yes | `owed_to_business` or `owed_by_business` |
-| `currency` | no | `data.currency` |
-| `date` | no | `data.date` |
+| Argument    | Required | Maps to                                  |
+| ----------- | -------- | ---------------------------------------- |
+| `customer`  | yes      | `data.customer`                          |
+| `amount`    | yes      | `data.amount`                            |
+| `direction` | yes      | `owed_to_business` or `owed_by_business` |
+| `currency`  | no       | `data.currency`                          |
+| `date`      | no       | `data.date`                              |
 
 `event_type: "customer_debt"`.
 
@@ -754,9 +755,9 @@ If the direction is unclear, ask. Do not default it.
 
 #### `ask_business` — read-only, no confirmation
 
-| Argument | Required | Maps to |
-| --- | --- | --- |
-| `query` | yes | English question string |
+| Argument | Required | Maps to                 |
+| -------- | -------- | ----------------------- |
+| `query`  | yes      | English question string |
 
 `POST /api/v1/query`.
 
@@ -780,13 +781,13 @@ Useful question shapes the parser actually accepts:
 
 ### Errors and clarification back to the user
 
-| Backend outcome | Voice behavior |
-| --- | --- |
-| `201` / query `200`, `success: true` | Speak `message`. Do not invent a second summary that changes the numbers. |
-| `400`, `status: "needs_clarification"` | Ask `message` in the user’s language. Keep already collected slots. `missing_fields` says what is still empty. After the user answers, POST again with the merged payload. |
-| `400`, `error.code: "VALIDATION_ERROR"` | Speak `error.message`. Do not retry the same payload. The user has to change the value (amount not positive, bad direction, bad date, unsupported type). |
-| Network / 5xx / the process does not start | Say the business service is unavailable. Do not store the event locally and replay it later without showing the user, or you will double-post once the server is back. |
-| Query success with amount 0 | That is a real answer, not an error. Speak it. |
+| Backend outcome                            | Voice behavior                                                                                                                                                             |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `201` / query `200`, `success: true`       | Speak `message`. Do not invent a second summary that changes the numbers.                                                                                                  |
+| `400`, `status: "needs_clarification"`     | Ask `message` in the user’s language. Keep already collected slots. `missing_fields` says what is still empty. After the user answers, POST again with the merged payload. |
+| `400`, `error.code: "VALIDATION_ERROR"`    | Speak `error.message`. Do not retry the same payload. The user has to change the value (amount not positive, bad direction, bad date, unsupported type).                   |
+| Network / 5xx / the process does not start | Say the business service is unavailable. Do not store the event locally and replay it later without showing the user, or you will double-post once the server is back.     |
+| Query success with amount 0                | That is a real answer, not an error. Speak it.                                                                                                                             |
 
 Clarification `message` and validation `message` are English. **Recommendation:** translate only the prompt you speak. Send the backend the original field values, not a translated rewrite of a name or item, unless the product has decided on one storage language (see constraints).
 
@@ -884,18 +885,18 @@ The frontend does not need a contract change for this repair.
 
 ### Inconsistencies found
 
-| Location | What it says | What the code does |
-| --- | --- | --- |
-| `README.md` before this repair | JWT, domain routes, `POST /api/v1/agent-gateway`, `remaining_stock` | README now matches the three live endpoints and `.env.example`. Those other routes are still not served. |
-| `app/main.py` after PR #2 | Included the router again with `settings.API_V1_STR` and created tables on an async engine | Those lines were removed. One router, prefix `/api/v1`, sync `init_db`. |
-| `app/api/v1/router.py` and `endpoints/agent_gateway.py` | Alternate `/events` and `/query` | Not mounted. Identical copies. Non-sale events are fake success. |
-| `app/models/base.py` | Was a JWT copy, while models imported `AuditMixin` | Now `RelationalBase` and `AuditMixin`. Not used by `init_db`. |
-| `app/core/security.py` | bcrypt + `jose` JWT | Not referenced by live routes. Packages are not in `requirements.txt`. |
-| `app/core/errors.py` clarification | HTTP 200 | Live clarifications are HTTP 400. Handler is not attached. |
-| `app/services/analytics_service.py` | “You sold X today” | Sums all sales and labels them as today. |
-| `docs/API_CONTRACT.md` §13 | “Backend interprets request” for the whole NL flow | True for `/query` only. Events require structured `data`. |
-| `docs/API_CONTRACT.md` §10 | Expenses by category, purchase history, inventory changes | Not implemented as query types. |
-| Relational sketches | `businesses`, `inventory_items`, `event_logs` | Defined on `RelationalBase`. Live `create_all` still creates only `events`. `app.core.db` is still unused and its settings object still fails to construct. |
+| Location                                                | What it says                                                                               | What the code does                                                                                                                                          |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `README.md` before this repair                          | JWT, domain routes, `POST /api/v1/agent-gateway`, `remaining_stock`                        | README now matches the three live endpoints and `.env.example`. Those other routes are still not served.                                                    |
+| `app/main.py` after PR #2                               | Included the router again with `settings.API_V1_STR` and created tables on an async engine | Those lines were removed. One router, prefix `/api/v1`, sync `init_db`.                                                                                     |
+| `app/api/v1/router.py` and `endpoints/agent_gateway.py` | Alternate `/events` and `/query`                                                           | Not mounted. Identical copies. Non-sale events are fake success.                                                                                            |
+| `app/models/base.py`                                    | Was a JWT copy, while models imported `AuditMixin`                                         | Now `RelationalBase` and `AuditMixin`. Not used by `init_db`.                                                                                               |
+| `app/core/security.py`                                  | bcrypt + `jose` JWT                                                                        | Not referenced by live routes. Packages are not in `requirements.txt`.                                                                                      |
+| `app/core/errors.py` clarification                      | HTTP 200                                                                                   | Live clarifications are HTTP 400. Handler is not attached.                                                                                                  |
+| `app/services/analytics_service.py`                     | “You sold X today”                                                                         | Sums all sales and labels them as today.                                                                                                                    |
+| `docs/API_CONTRACT.md` §13                              | “Backend interprets request” for the whole NL flow                                         | True for `/query` only. Events require structured `data`.                                                                                                   |
+| `docs/API_CONTRACT.md` §10                              | Expenses by category, purchase history, inventory changes                                  | Not implemented as query types.                                                                                                                             |
+| Relational sketches                                     | `businesses`, `inventory_items`, `event_logs`                                              | Defined on `RelationalBase`. Live `create_all` still creates only `events`. `app.core.db` is still unused and its settings object still fails to construct. |
 
 ---
 

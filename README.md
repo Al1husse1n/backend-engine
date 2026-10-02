@@ -13,7 +13,7 @@ The shared request/response contract lives in [docs/API_CONTRACT.md](docs/API_CO
 - Python 3.11+
 - FastAPI
 - SQLAlchemy 2
-- SQLite by default
+- PostgreSQL in production (Supabase), SQLite for local development
 - Pydantic v2
 
 There is no authentication system and no LLM integration in this repository.
@@ -32,14 +32,23 @@ Open [http://localhost:8000/docs](http://localhost:8000/docs) for the interactiv
 
 ## Environment variables
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | `sqlite:///./data/app.db` | SQLAlchemy database URL |
-| `HOST` | `0.0.0.0` | Bind address |
-| `PORT` | `8000` | Bind port |
-| `CORS_ORIGINS` | `*` | Browser origins. `*` allows any origin **without** credentials. For production, set an explicit comma-separated list such as `http://localhost:3000,https://your-frontend.example` (credentials enabled only when origins are explicit). |
+| Variable       | Default                   | Purpose                                                                                                                                                                                                                                  |
+| -------------- | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL` | `sqlite:///./data/app.db` | SQLAlchemy database URL. Set Render to the Supabase PostgreSQL connection string.                                                                                                                                                        |
+| `HOST`         | `0.0.0.0`                 | Bind address                                                                                                                                                                                                                             |
+| `PORT`         | `8000`                    | Bind port                                                                                                                                                                                                                                |
+| `CORS_ORIGINS` | `*`                       | Browser origins. `*` allows any origin **without** credentials. For production, set an explicit comma-separated list such as `http://localhost:3000,https://your-frontend.example` (credentials enabled only when origins are explicit). |
 
 Copy `.env.example` to `.env`. Do not commit secrets. This MVP does not require API keys.
+
+### Render and Supabase
+
+Set the Render service environment variable `DATABASE_URL` to the Supabase
+PostgreSQL connection string. The application uses SQLAlchemy with the
+`psycopg` driver and creates the live `events` table at startup. Keep the
+SQLite default for local development until the hosted database has been
+verified. Use a Supabase pooled connection string when the project provides
+one for long-running web services.
 
 ## Implemented endpoints
 
@@ -125,7 +134,7 @@ python -m pytest
   - `purchase`: +quantity
   - `sale`: −quantity
   - `inventory_adjustment`: +signed quantity
-  There is no separate inventory table in the live database. Item names that are also parser keywords (for example `today`, `left`, `cost`) are not treated as product names.
+    There is no separate inventory table in the live database. Item names that are also parser keywords (for example `today`, `left`, `cost`) are not treated as product names.
 - A sale does not create a customer debt. A purchase does not create an expense. Debt is derived only from `customer_debt` events.
 - Query interpretation is **English-only**. The `language` field is stored and accepted, but Amharic/Oromo (and other non-English values) are not parsed. Those requests return clarification rather than a guessed answer. `app/services/extraction.py` remains a placeholder for a later recording-side extractor. Multilingual NLP is out of scope.
 
