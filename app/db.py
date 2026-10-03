@@ -1,6 +1,5 @@
 from collections.abc import Generator
 from pathlib import Path
-from urllib.parse import urlparse
 
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
@@ -37,9 +36,59 @@ def _uses_psycopg3(url: str) -> bool:
     return url.startswith("postgresql+psycopg://")
 
 
+def _authority_port(url: str) -> int | None:
+    """Return the host port from a database URL.
+
+    ``urllib.parse.urlparse().port`` raises ``ValueError`` when an unencoded
+    password contains ``/``, ``?``, or ``#``, because those characters end the
+    authority and the following password text is parsed as the port. The host
+    is the section after the last ``@``. A non-numeric port is rejected here
+    instead of being treated as a usable URL.
+    """
+    if "://" not in url:
+        raise ValueError("Invalid database URL: missing scheme.")
+    remainder = url.split("://", 1)[1]
+    hostport = remainder.rsplit("@", 1)[-1]
+    cut = len(hostport)
+    for separator in "/?#":
+        index = hostport.find(separator)
+        if index != -1:
+            cut = min(cut, index)
+    hostport = hostport[:cut].strip()
+    if not hostport:
+        raise ValueError("Invalid database URL: missing host.")
+    if hostport.startswith("["):
+        bracket_end = hostport.find("]")
+        if bracket_end == -1:
+            raise ValueError("Invalid database URL: unclosed IPv6 host.")
+        port_section = hostport[bracket_end + 1 :]
+        if not port_section:
+            return None
+        if not port_section.startswith(":"):
+            raise ValueError("Invalid database URL: malformed IPv6 host.")
+        port_text = port_section[1:]
+    elif ":" not in hostport:
+        return None
+    elif hostport.count(":") > 1:
+        raise ValueError("Invalid database URL: malformed host.")
+    else:
+        port_text = hostport.split(":", 1)[1]
+    port_text = port_text.strip()
+    if not port_text.isascii() or not port_text.isdigit():
+        raise ValueError(
+            f"Invalid database URL port {port_text!r}. Expected a numeric port."
+        )
+    port = int(port_text)
+    if not 0 <= port <= 65535:
+        raise ValueError(
+            f"Invalid database URL port {port!r}. Port must be between 0 and 65535."
+        )
+    return port
+
+
 def _uses_transaction_pooler(url: str) -> bool:
     """Supabase's transaction pooler listens on 6543 and rejects prepared statements."""
-    return urlparse(url).port == 6543
+    return _authority_port(url) == 6543
 
 
 def _engine_connect_args(database_url: str) -> dict:
