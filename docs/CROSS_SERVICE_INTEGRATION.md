@@ -194,7 +194,7 @@ All math happens in `answer_query` after rows are loaded for one `business_id`.
 - `sale` subtracts `quantity`
 - `inventory_adjustment` adds the signed `quantity` (negative decreases)
 
-No floor. A sale of more units than purchased yields a negative quantity. Name match is case-insensitive. The word `today` (and other parser keywords) is never treated as an item name.
+No floor. A sale of more units than purchased yields a negative quantity. Name match is case-insensitive. A regular plural (`shirts`) matches the singular (`shirt`) for sales, purchases, and inventory. `shorts` is not folded into `short`. The word `today` (and other parser keywords) is never treated as an item name.
 
 **Customer debt.** Net per customer name (case-insensitive):
 
@@ -203,7 +203,7 @@ No floor. A sale of more units than purchased yields a negative quantity. Name m
 
 A named-customer query returns the net, including zero. A “who owes me” query lists only customers whose net is **positive**, plus a `total`.
 
-Mixed currencies in one answer collapse to `ETB` unless every matched row has the same currency.
+If the rows in one monetary total use more than one currency, the query returns clarification instead of a combined number. A single shared currency is reported as that currency.
 
 ### Validation behavior
 
@@ -220,7 +220,7 @@ Event `data` is a free object at the schema layer (`extra` is forbidden only on 
 
 Empty string is missing. Numbers may be numeric or numeric strings (`"900"`, `"1,200"`). Booleans are rejected as numbers. Integer-valued floats are stored as integers (`3.0` → `3`).
 
-Dates: omitted, null, or blank becomes the server’s local calendar date (`date.today()`), ISO `YYYY-MM-DD`. Any other value must already be `YYYY-MM-DD`. Datetimes and natural-language dates are rejected.
+Dates: omitted, null, or blank becomes today's calendar date in `Africa/Addis_Ababa`, ISO `YYYY-MM-DD`. Any other value must already be `YYYY-MM-DD`. Datetimes and natural-language dates are rejected.
 
 Currency: omitted becomes `ETB`. Otherwise the string is stripped and uppercased. There is no allow-list.
 
@@ -243,16 +243,17 @@ Periods:
 
 | Phrase                    | Window                                              |
 | ------------------------- | --------------------------------------------------- |
-| `today`, `tonight`        | That calendar day                                   |
+| `today`, `tonight`        | That Addis Ababa calendar day                       |
 | `this week`, `the week`   | Monday through today (`date.weekday()`, Monday = 0) |
 | `this month`, `the month` | First of the month through today                    |
-| anything else             | All stored dates                                    |
+| no period mentioned       | All stored dates                                    |
+| `yesterday`, `last week`, `last month`, `last 7 days`, an explicit date, or another unsupported range | Clarification. No total is returned. |
 
 “Week” is not the last 7 days. There is no custom date range in the query language.
 
 Item detection prefers names already stored for that business, longest first, whole word, case-insensitive. A fallback grabs the noun in “how many …”. Reserved words (`today`, `left`, `cost`, `sale`, `owe`, …) are never item names.
 
-Customer detection is the pattern `how much does <Name> owe` or `does <Name> owe`. One Latin-letter token (`A-Za-z`, apostrophe, hyphen). `"Hana"` works. Multi-word names and non-Latin names are not extracted by this regex.
+Customer detection is the pattern `how much does <Name> owe` or `does <Name> owe`. A name is one to four Latin words (`A-Za-z`, apostrophe, hyphen), so `Hana` and `Abebe Kebede` both work. A token such as `the` or `business` is not treated as a name. Non-Latin names are not extracted by this regex.
 
 ### Not implemented
 
@@ -363,7 +364,7 @@ Unknown top-level fields are rejected (`extra: forbid`).
 | `amount`   | yes      | Number > 0. This is the money total for the line, not a unit price. |
 | `currency` | no       | Default `ETB`.                                                      |
 | `customer` | no       | String or null. Blank becomes null.                                 |
-| `date`     | no       | `YYYY-MM-DD` or server today.                                       |
+| `date`     | no       | `YYYY-MM-DD` or today in Africa/Addis_Ababa.                        |
 
 Success message: `Sale recorded successfully: {quantity} {item} for {amount} {currency}.`
 
@@ -867,21 +868,21 @@ The frontend does not need a contract change for this repair.
 
 - **Contract to code against:** `POST /api/v1/events`, `POST /api/v1/query`, `GET /api/v1/health`, bodies in this document. `docs/API_CONTRACT.md` and `README.md` agree.
 - **Startup:** `app.main` imports. Routes stay on `/api/v1`. Do not add a second prefix.
-- **Database:** one SQLite file, default `sqlite:///./data/app.db`, table `events` only. `created_at` is not the business date. `data.date` is.
+- **Database:** table `events` only. Local default is SQLite `sqlite:///./data/app.db`. `postgres://` and `postgresql://` use the psycopg driver. `created_at` is not the business date. `data.date` is.
 - **No auth.** Anyone who can reach the port can read and write any `business_id`.
 - **No idempotency key.**
 - **Amounts** are line totals, not unit prices. No tax, no discount, no quantity × price check.
-- **Currency** defaults to ETB. Any uppercase string is accepted. Mixed currencies in one query become ETB.
-- **Dates** must be `YYYY-MM-DD` or omitted (server local today). Week starts Monday. No timezone field.
+- **Currency** defaults to ETB. Any uppercase string is accepted. Mixed currencies in one aggregate return clarification.
+- **Dates** must be `YYYY-MM-DD` or omitted (today in `Africa/Addis_Ababa`). Week starts Monday. Unsupported time phrases clarify.
 - **Inventory** may go negative. No reservation and no “cannot sell more than stock” rule.
 - **Debt** is an append-only net. Same direction twice means two debts, not an edit.
-- **Queries** are English-only. Item and customer matching is case-insensitive exact text. Customer questions only capture one Latin word.
+- **Queries** are English-only. Item matching is case-insensitive, with a conservative singular/plural fold. Customer questions capture up to four Latin words.
 - **Languages** on events are stored and ignored by logic. User-facing handler strings are English.
 - **Unsupported:** update, delete, list endpoints, payments, auth, advice, category expense queries, supplier-payable queries, non-English query parsing, agent gateway.
-- **Dependencies:** `requirements.txt` is FastAPI, uvicorn, SQLAlchemy, Pydantic v2, pydantic-settings, python-dotenv, pytest, httpx. No JWT library, no async SQLite driver, no LLM SDK.
+- **Dependencies:** `requirements.txt` is FastAPI, uvicorn, SQLAlchemy, psycopg, tzdata, Pydantic v2, pydantic-settings, python-dotenv, pytest, httpx. No JWT library, no async SQLite driver, no LLM SDK.
 - **Deployment assumptions in code:** `uvicorn app.main:app` or `python -m app`, host/port from `app.config`, CORS from `CORS_ORIGINS`. Live settings are `DATABASE_URL`, `HOST`, `PORT`, and `CORS_ORIGINS`.
 - **Schema split:** live metadata is `app.db.Base` (`events` only). `Business`, `InventoryItem`, and `EventLog` use `app.models.base.RelationalBase` and are not created. Do not point `init_db` at them.
-- **Tests** cover the live contract. 35 passed after the startup repair.
+- **Tests** cover the live contract, including Addis Ababa dates, plural items, multi-word customers, unsupported periods, and mixed currencies.
 
 ### Inconsistencies found
 
@@ -909,9 +910,9 @@ The frontend does not need a contract change for this repair.
 - No undo.
 - No pagination or export.
 - No unit price, margin, or profit endpoint. Profit is not sales minus expenses; those totals exist separately if a client asks both questions.
-- “This week” depends on the server’s local date and Monday as the first day.
+- “This week” depends on the Addis Ababa date and Monday as the first day.
 - Keyword collisions: a question that mentions both selling and spending is rejected rather than answered.
-- Names with spaces or non-Latin characters can be **stored** on a debt event but cannot be **found** by “How much does X owe me?” because of the Latin one-word regex.
+- Non-Latin customer names can be **stored** on a debt event but are not extracted from “How much does X owe me?”. Latin names of up to four words are extracted.
 - Storing an item in Amharic and later asking “how many shirts” will not match.
 - Empty endpoint files and `app/core/` are still in the tree. They are not mounted. The README says they are not part of the running API.
 

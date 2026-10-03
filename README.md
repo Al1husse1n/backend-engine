@@ -48,7 +48,10 @@ PostgreSQL connection string. The application uses SQLAlchemy with the
 `psycopg` driver and creates the live `events` table at startup. Keep the
 SQLite default for local development until the hosted database has been
 verified. Use a Supabase pooled connection string when the project provides
-one for long-running web services.
+one for long-running web services. PostgreSQL connections use `pool_pre_ping`.
+The Supabase transaction pooler (port `6543`) is connected with psycopg
+prepared statements disabled. `postgres://` and `postgresql://` URLs are
+accepted. Do not commit the connection string.
 
 ## Implemented endpoints
 
@@ -129,12 +132,13 @@ python -m pytest
 
 - `business_id` is a client-supplied identifier, not an authenticated user. There is no login, signup, or tenant isolation beyond storing the provided ID on each event. The backend does not hard-code a demo business.
 - If `currency` is omitted on an event, it defaults to `ETB`. This is an MVP convenience, not a multi-currency system.
-- If `date` is omitted on an event, it defaults to the **server's current local calendar date** (`YYYY-MM-DD`). Query phrases such as "today" / "this week" / "this month" use that same server date. Timezones are **not** implemented; aligning the server clock (or passing dates from the client) is a future integration concern.
-- Inventory on hand is calculated at query time from the event log, with **case-insensitive, whitespace-normalized** item matching:
+- If `date` is omitted on an event, it defaults to the current calendar date in **Africa/Addis_Ababa** (`YYYY-MM-DD`). Query phrases such as "today" / "this week" / "this month" use that same business date. An explicit `YYYY-MM-DD` from the client is stored as given. Other time phrases are not guessed.
+- Inventory on hand is calculated at query time from the event log, with **case-insensitive, whitespace-normalized** item matching. A regular plural such as `shirts` matches `shirt`. Words that are not regular plurals, such as `shorts`, stay distinct.
   - `purchase`: +quantity
   - `sale`: −quantity
   - `inventory_adjustment`: +signed quantity
-    There is no separate inventory table in the live database. Item names that are also parser keywords (for example `today`, `left`, `cost`) are not treated as product names.
+
+  There is no separate inventory table in the live database. Item names that are also parser keywords (for example `today`, `left`, `cost`) are not treated as product names.
 - A sale does not create a customer debt. A purchase does not create an expense. Debt is derived only from `customer_debt` events.
 - Query interpretation is **English-only**. The `language` field is stored and accepted, but Amharic/Oromo (and other non-English values) are not parsed. Those requests return clarification rather than a guessed answer. `app/services/extraction.py` remains a placeholder for a later recording-side extractor. Multilingual NLP is out of scope.
 
