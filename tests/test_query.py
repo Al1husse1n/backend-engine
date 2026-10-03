@@ -1,4 +1,4 @@
-from datetime import date
+from app.business_time import business_today
 
 
 def post_event(client, payload):
@@ -13,7 +13,7 @@ def post_query(client, business_id, query, language="en"):
 
 
 def test_sales_total_today_uses_persisted_events(client):
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     post_event(
         client,
         {
@@ -73,7 +73,7 @@ def test_sales_total_today_uses_persisted_events(client):
 
 
 def test_query_is_scoped_to_business_id(client):
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     post_event(
         client,
         {
@@ -97,7 +97,7 @@ def test_query_is_scoped_to_business_id(client):
 
 
 def test_expenses_total(client):
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     post_event(
         client,
         {
@@ -236,7 +236,7 @@ def test_customer_debt_specific_and_list(client):
 
 
 def test_biggest_expenses(client):
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     post_event(
         client,
         {
@@ -450,7 +450,7 @@ def test_who_do_i_owe_needs_clarification(client):
 
 
 def test_keyword_item_name_does_not_filter_sales(client):
-    today = date.today().isoformat()
+    today = business_today().isoformat()
     post_event(
         client,
         {

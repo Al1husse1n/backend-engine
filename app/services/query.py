@@ -8,6 +8,7 @@ from typing import Any, Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.business_time import business_today
 from app.errors import NeedsClarification
 from app.models import Event
 from app.services.normalization import DEFAULT_CURRENCY, format_money, format_number, normalize_key
@@ -17,6 +18,15 @@ PeriodKind = Literal["today", "week", "month", "all"]
 UNCLEAR_QUERY_MESSAGE = (
     "I could not tell what you want to know. Try asking about sales, expenses, "
     "inventory, or money a customer owes you."
+)
+
+UNSUPPORTED_PERIOD_MESSAGE = (
+    "I can answer for today, this week, this month, or everything recorded so far. "
+    "I couldn't use that time range."
+)
+
+MIXED_CURRENCY_MESSAGE = (
+    "Those records use more than one currency, so I can't add them into one total."
 )
 
 # Item names that collide with parser keywords are ignored as item matches.
@@ -78,6 +88,45 @@ CUSTOMER_STOPWORDS = {
 
 _SINGULAR_WORD_ENDINGS = ("ss", "us", "is", "ws")
 
+# Whole words that only look like regular plurals. Do not stem these.
+_DO_NOT_SINGULARIZE = frozenset(
+    {
+        "shorts",
+        "glasses",
+        "jeans",
+        "goods",
+        "pants",
+        "trousers",
+        "scissors",
+        "clothes",
+        "series",
+        "species",
+        "news",
+    }
+)
+
+_UNSUPPORTED_PERIOD_RE = re.compile(
+    r"("
+    r"\byesterday\b|"
+    r"\btomorrow\b|"
+    r"\blast\s+week\b|"
+    r"\blast\s+month\b|"
+    r"\blast\s+year\b|"
+    r"\bnext\s+week\b|"
+    r"\bnext\s+month\b|"
+    r"\bnext\s+year\b|"
+    r"\bpast\s+week\b|"
+    r"\bpast\s+month\b|"
+    r"\bthis\s+year\b|"
+    r"\blast\s+\d+\s+days?\b|"
+    r"\blast\s+seven\s+days\b|"
+    r"\bon\s+\d{4}-\d{2}-\d{2}\b|"
+    r"\b\d{4}-\d{2}-\d{2}\b|"
+    r"\b\d{1,2}/\d{1,2}/\d{2,4}\b"
+    r")",
+    re.IGNORECASE,
+)
+
 
 @dataclass(frozen=True)
 class QueryIntent:
@@ -88,7 +137,7 @@ class QueryIntent:
 
 
 def period_bounds(kind: PeriodKind, today: date | None = None) -> tuple[date | None, date | None]:
-    today = today or date.today()
+    today = today if today is not None else business_today()
     if kind == "today":
         return today, today
     if kind == "week":
@@ -118,26 +167,71 @@ def _unclear(message: str = UNCLEAR_QUERY_MESSAGE) -> NeedsClarification:
     return NeedsClarification(message, ["query"])
 
 
+def _unsupported_period(text: str) -> bool:
+    return _UNSUPPORTED_PERIOD_RE.search(text) is not None
+
+
 def _detect_customer(original: str) -> str | None:
     match = re.search(
-        r"(?:how much does|does)\s+([A-Za-z][A-Za-z'-]*)\s+owe",
+        r"(?:how much does|does)\s+"
+        r"([A-Za-z][A-Za-z'-]*(?:\s+[A-Za-z][A-Za-z'-]*){0,3})"
+        r"\s+owe\b",
         original,
         flags=re.IGNORECASE,
     )
     if not match:
         return None
-    name = match.group(1).strip()
-    if name.lower() in CUSTOMER_STOPWORDS:
+    name = " ".join(match.group(1).split())
+    tokens = name.lower().split()
+    if any(token in CUSTOMER_STOPWORDS for token in tokens):
         return None
     return name
 
 
+def _singular_token(token: str) -> str | None:
+    if token in _DO_NOT_SINGULARIZE:
+        return None
+    if len(token) <= 3 or not token.endswith("s") or token.endswith(_SINGULAR_WORD_ENDINGS):
+        return None
+    return token[:-1]
+
+
+def _plural_token(token: str) -> str | None:
+    if token.endswith("s") or len(token) <= 3:
+        return None
+    plural = token + "s"
+    if plural in _DO_NOT_SINGULARIZE:
+        return None
+    return plural
+
+
 def _normalize_item_name(name: str) -> str:
-    """Normalize only conservative regular English item plurals."""
+    """Fold a regular trailing plural on the last word.
+
+    `shirts` matches `shirt`. Words that are not regular plurals, including
+    `shorts`, stay unchanged.
+    """
     key = normalize_key(name)
-    if len(key) > 3 and key.endswith("s") and not key.endswith(_SINGULAR_WORD_ENDINGS):
-        return key[:-1]
-    return key
+    parts = key.split(" ")
+    if not parts:
+        return key
+    singular = _singular_token(parts[-1])
+    if singular is None:
+        return key
+    parts[-1] = singular
+    return " ".join(parts)
+
+
+def _item_mentions(item_key: str) -> list[str]:
+    parts = item_key.split(" ")
+    if not parts or not parts[-1]:
+        return []
+    mentions = [item_key]
+    last = parts[-1]
+    for variant in (_plural_token(last), _singular_token(last)):
+        if variant:
+            mentions.append(" ".join([*parts[:-1], variant]))
+    return mentions
 
 
 def _detect_item(text: str, known_items: list[str]) -> str | None:
@@ -145,13 +239,20 @@ def _detect_item(text: str, known_items: list[str]) -> str | None:
 
     Known item names that are parser keywords (today, left, cost, owe, ...)
     are ignored so they cannot steal the query type or filter totals.
+    A regular plural (`shirts`) matches a stored singular, and the reverse.
+    The returned text is the wording used in the question.
     """
-    for item in sorted(known_items, key=len, reverse=True):
+    mentions: list[str] = []
+    for item in known_items:
         key = normalize_key(item)
         if not key or key in RESERVED_ITEM_WORDS:
             continue
-        if re.search(rf"\b{re.escape(item)}\b", text, flags=re.IGNORECASE):
-            return item
+        for pattern in _item_mentions(key):
+            match = re.search(rf"\b({re.escape(pattern)})\b", text, flags=re.IGNORECASE)
+            if match:
+                mentions.append(match.group(1))
+    if mentions:
+        return max(mentions, key=len)
     match = re.search(
         r"how many\s+([a-z0-9][a-z0-9\s-]{0,40}?)(?:\s+did|\s+do|\s+have|\s+left|\s+in|\?|$)",
         text,
@@ -181,6 +282,8 @@ def parse_query(
         raise _unclear(
             "Query interpretation currently supports English only. Please ask in English."
         )
+    if _unsupported_period(original):
+        raise NeedsClarification(UNSUPPORTED_PERIOD_MESSAGE, ["period"])
 
     text = original.lower()
     period = _detect_period(text)
@@ -291,15 +394,24 @@ def _as_amount(value: Any) -> float:
         return 0.0
 
 
-def _pick_currency(events: list[Event]) -> str:
-    currencies = {
-        str(event.data.get("currency")).upper()
-        for event in events
-        if isinstance(event.data, dict) and event.data.get("currency")
-    }
+def _require_single_currency(currencies: set[str]) -> str:
+    if len(currencies) > 1:
+        raise NeedsClarification(MIXED_CURRENCY_MESSAGE, ["currency"])
     if len(currencies) == 1:
-        return currencies.pop()
+        return next(iter(currencies))
     return DEFAULT_CURRENCY
+
+
+def _event_currency(event: Event) -> str:
+    if isinstance(event.data, dict) and event.data.get("currency"):
+        return str(event.data["currency"]).upper()
+    return DEFAULT_CURRENCY
+
+
+def _pick_currency(events: list[Event]) -> str:
+    if not events:
+        return DEFAULT_CURRENCY
+    return _require_single_currency({_event_currency(event) for event in events})
 
 
 def _period_result(start: date | None, end: date | None) -> dict[str, str] | None:
@@ -341,13 +453,13 @@ def _known_items(events: list[Event]) -> list[str]:
 def _sum_amounts(events: list[Event], event_type: str, start: date | None, end: date | None, item: str | None = None) -> tuple[float, list[Event]]:
     matched: list[Event] = []
     total = 0.0
-    item_key = normalize_key(item) if item else None
+    item_key = _normalize_item_name(item) if item else None
     for event in events:
         if event.event_type != event_type or not _in_period(event, start, end):
             continue
         if item_key:
             event_item = event.data.get("item") if isinstance(event.data, dict) else None
-            if not isinstance(event_item, str) or normalize_key(event_item) != item_key:
+            if not isinstance(event_item, str) or _normalize_item_name(event_item) != item_key:
                 continue
         matched.append(event)
         total += _as_amount(event.data.get("amount"))
@@ -389,7 +501,7 @@ def _customer_balances(events: list[Event]) -> dict[str, dict[str, Any]]:
             {
                 "customer": name.strip(),
                 "amount": 0.0,
-                "currency": event.data.get("currency") or DEFAULT_CURRENCY,
+                "currencies": set(),
             },
         )
         amount = _as_amount(event.data.get("amount"))
@@ -399,8 +511,8 @@ def _customer_balances(events: list[Event]) -> dict[str, dict[str, Any]]:
         elif direction == "owed_by_business":
             row["amount"] -= amount
         row["customer"] = name.strip()
-        if event.data.get("currency"):
-            row["currency"] = event.data["currency"]
+        currency = event.data.get("currency") or DEFAULT_CURRENCY
+        row["currencies"].add(str(currency).upper())
     return balances
 
 
@@ -503,10 +615,13 @@ def answer_query(
         balances = _customer_balances(events)
         if intent.customer:
             key = normalize_key(intent.customer)
-            row = balances.get(key, {"customer": intent.customer, "amount": 0, "currency": DEFAULT_CURRENCY})
+            row = balances.get(
+                key,
+                {"customer": intent.customer, "amount": 0, "currencies": set()},
+            )
             amount = row["amount"]
             amount_out = int(amount) if float(amount).is_integer() else amount
-            currency = str(row.get("currency") or DEFAULT_CURRENCY)
+            currency = _require_single_currency(set(row.get("currencies") or []))
             result = {
                 "customer": row["customer"],
                 "amount": amount_out,
@@ -521,18 +636,24 @@ def answer_query(
                 message = f"{row['customer']} does not currently owe you money."
             return {"query_type": "customer_debt", "result": result, "message": message}
 
+        positive = [row for row in balances.values() if row["amount"] > 0]
+        list_currency = _require_single_currency(
+            {
+                _require_single_currency(set(row.get("currencies") or []))
+                for row in positive
+            }
+        )
         outstanding = [
             {
                 "customer": row["customer"],
                 "amount": int(row["amount"]) if float(row["amount"]).is_integer() else row["amount"],
-                "currency": row["currency"],
+                "currency": list_currency,
             }
-            for row in balances.values()
-            if row["amount"] > 0
+            for row in positive
         ]
         outstanding.sort(key=lambda row: row["amount"], reverse=True)
         total = sum(_as_amount(row["amount"]) for row in outstanding)
-        currency = outstanding[0]["currency"] if outstanding else DEFAULT_CURRENCY
+        currency = list_currency if outstanding else DEFAULT_CURRENCY
         result = {
             "customers": outstanding,
             "total": int(total) if float(total).is_integer() else total,

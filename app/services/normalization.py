@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from typing import Any
 
+from app.business_time import business_today
+
 DEFAULT_CURRENCY = "ETB"
 
 
@@ -47,7 +49,7 @@ def optional_string(value: Any, field: str) -> str | None:
 
 def normalize_date(value: Any) -> str:
     if is_blank(value):
-        return date.today().isoformat()
+        return business_today().isoformat()
     if isinstance(value, date) and not isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, datetime):
