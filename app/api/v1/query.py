@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.v1.dependencies import get_authenticated_business_id
 from app.db import get_db
 from app.errors import ValidationFailed
 from app.schemas import QueryRequest, QuerySuccessResponse
@@ -10,15 +11,17 @@ router = APIRouter()
 
 
 @router.post("/query", response_model=QuerySuccessResponse)
-def query_business(payload: QueryRequest, db: Session = Depends(get_db)) -> QuerySuccessResponse:
-    if not payload.business_id.strip():
-        raise ValidationFailed("business_id is required.")
+def query_business(
+    payload: QueryRequest,
+    db: Session = Depends(get_db),
+    business_id: str = Depends(get_authenticated_business_id),
+) -> QuerySuccessResponse:
     if not payload.query.strip():
         raise ValidationFailed("query is required.")
 
     answered = answer_query(
         db,
-        payload.business_id,
+        business_id,
         payload.query,
         language=payload.language,
     )
