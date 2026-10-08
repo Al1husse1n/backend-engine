@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     port: int = 8000
     # Comma-separated origins, or * for any origin without credentials.
     cors_origins: str = "*"
+    supabase_url: str = ""
     supabase_jwt_secret: str = ""
 
 
