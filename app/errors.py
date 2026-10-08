@@ -16,6 +16,11 @@ class ValidationFailed(AppError):
         super().__init__("VALIDATION_ERROR", message, status_code=400)
 
 
+class AuthenticationFailed(AppError):
+    def __init__(self, message: str = "Invalid or missing authentication token."):
+        super().__init__("UNAUTHORIZED", message, status_code=401)
+
+
 class NeedsClarification(Exception):
     def __init__(self, message: str, missing_fields: list[str] | None = None):
         self.message = message

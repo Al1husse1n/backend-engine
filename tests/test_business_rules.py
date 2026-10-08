@@ -15,14 +15,23 @@ def _use_addis_clock(monkeypatch, instant: datetime) -> None:
     monkeypatch.setattr("app.business_time.business_now", _frozen)
 
 
-def post_event(client, payload):
-    return client.post("/api/v1/events", json=payload)
+from tests.conftest import auth_headers
 
 
-def post_query(client, query, business_id="business_123"):
+def post_event(client, payload, headers=None):
+    if headers is None:
+        sub = payload.get("business_id", "test_user") if isinstance(payload, dict) else "test_user"
+        headers = auth_headers(sub)
+    return client.post("/api/v1/events", json=payload, headers=headers)
+
+
+def post_query(client, query, business_id="business_123", headers=None):
+    if headers is None:
+        headers = auth_headers(business_id)
     return client.post(
         "/api/v1/query",
         json={"business_id": business_id, "language": "en", "query": query},
+        headers=headers,
     )
 
 

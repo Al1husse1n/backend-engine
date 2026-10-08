@@ -4,9 +4,34 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from jose import jwt
+
+from app.config import settings
 from app.db import Base, get_db
 from app.main import app
 from app.models import Event  # noqa: F401
+
+TEST_JWT_SECRET = "test-supabase-jwt-secret-12345"
+settings.supabase_jwt_secret = TEST_JWT_SECRET
+
+
+def make_test_token(
+    sub: str = "test_user",
+    secret: str = TEST_JWT_SECRET,
+    exp: int = 9999999999,
+    aud: str = "authenticated",
+) -> str:
+    payload = {
+        "sub": sub,
+        "aud": aud,
+        "role": "authenticated",
+        "exp": exp,
+    }
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def auth_headers(sub: str = "test_user") -> dict[str, str]:
+    return {"Authorization": f"Bearer {make_test_token(sub)}"}
 
 
 @pytest.fixture

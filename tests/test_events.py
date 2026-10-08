@@ -3,8 +3,14 @@ from sqlalchemy import func, select
 from app.models import Event
 
 
-def post_event(client, payload):
-    return client.post("/api/v1/events", json=payload)
+from tests.conftest import auth_headers
+
+
+def post_event(client, payload, headers=None):
+    if headers is None:
+        sub = payload.get("business_id", "test_user") if isinstance(payload, dict) else "test_user"
+        headers = auth_headers(sub)
+    return client.post("/api/v1/events", json=payload, headers=headers)
 
 
 def event_count(session_factory) -> int:
@@ -54,7 +60,7 @@ def test_valid_sale_is_persisted(client, session_factory):
 
     stored = load_event(session_factory, body["event"]["id"])
     assert stored is not None
-    assert stored.business_id == "business_123"
+    assert stored.business_id == "biz_business_123"
     assert stored.event_type == "sale"
     assert stored.language == "en"
     assert stored.data["item"] == "shirts"
@@ -123,7 +129,7 @@ def test_valid_purchase_preserves_inventory_fields(client, session_factory):
     assert body["event"]["event_type"] == "purchase"
     stored = load_event(session_factory, body["event"]["id"])
     assert stored is not None
-    assert stored.business_id == "shop_a"
+    assert stored.business_id == "biz_shop_a"
     assert stored.data["item"] == "shirts"
     assert stored.data["quantity"] == 20
     assert stored.data["amount"] == 8000
@@ -343,6 +349,6 @@ def test_business_id_is_not_hard_coded(client, session_factory):
     )
     assert first.status_code == 201
     assert second.status_code == 201
-    assert load_event(session_factory, first.json()["event"]["id"]).business_id == "shop_one"
-    assert load_event(session_factory, second.json()["event"]["id"]).business_id == "shop_two"
+    assert load_event(session_factory, first.json()["event"]["id"]).business_id == "biz_shop_one"
+    assert load_event(session_factory, second.json()["event"]["id"]).business_id == "biz_shop_two"
     assert load_event(session_factory, second.json()["event"]["id"]).language == "am"

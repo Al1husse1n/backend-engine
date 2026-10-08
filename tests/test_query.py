@@ -1,14 +1,21 @@
 from app.business_time import business_today
+from tests.conftest import auth_headers
 
 
-def post_event(client, payload):
-    return client.post("/api/v1/events", json=payload)
+def post_event(client, payload, headers=None):
+    if headers is None:
+        sub = payload.get("business_id", "test_user") if isinstance(payload, dict) else "test_user"
+        headers = auth_headers(sub)
+    return client.post("/api/v1/events", json=payload, headers=headers)
 
 
-def post_query(client, business_id, query, language="en"):
+def post_query(client, business_id, query, language="en", headers=None):
+    if headers is None:
+        headers = auth_headers(business_id)
     return client.post(
         "/api/v1/query",
         json={"business_id": business_id, "language": language, "query": query},
+        headers=headers,
     )
 
 
@@ -280,6 +287,7 @@ def test_missing_query_field(client):
     response = client.post(
         "/api/v1/query",
         json={"business_id": "business_123", "language": "en"},
+        headers=auth_headers("business_123"),
     )
     assert response.status_code == 400
     assert response.json()["success"] is False
