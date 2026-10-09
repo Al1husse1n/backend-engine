@@ -107,4 +107,3 @@ class DashboardResponse(BaseModel):
     customer_debt: CustomerDebtMetric
     inventory: InventoryMetric
     recent_activity: list[RecentActivityItem] = Field(default_factory=list)
-

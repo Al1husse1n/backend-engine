@@ -10,4 +10,3 @@ api_router.include_router(health_router)
 api_router.include_router(events_router)
 api_router.include_router(query_router)
 api_router.include_router(dashboard_router)
-

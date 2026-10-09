@@ -484,3 +484,276 @@ def test_strict_tenant_isolation(client):
     spoof_data = resp_spoof.json()
     # Still sees tenant B's data!
     assert spoof_data["sales_today"]["amount"] == 300.0
+
+
+def test_mixed_currencies_in_sales_today_triggers_clarification(client):
+    sub = "mixed_sales_merchant"
+    today_str = business_today().isoformat()
+
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "shoes", "quantity": 1, "amount": 1200.0, "currency": "ETB", "date": today_str},
+        },
+        sub=sub,
+    )
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "watch", "quantity": 1, "amount": 50.0, "currency": "USD", "date": today_str},
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert body["status"] == "needs_clarification"
+    assert body["error"]["code"] == "NEEDS_CLARIFICATION"
+    assert "currency" in body["missing_fields"]
+
+
+def test_sales_on_different_days_with_different_currencies_do_not_conflict(client):
+    sub = "multi_day_sales_merchant"
+    today = business_today()
+    today_str = today.isoformat()
+    yesterday_str = (today - timedelta(days=1)).isoformat()
+
+    # Yesterday was in USD
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "bag", "quantity": 1, "amount": 30.0, "currency": "USD", "date": yesterday_str},
+        },
+        sub=sub,
+    )
+    # Today is in ETB
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "shoes", "quantity": 1, "amount": 1200.0, "currency": "ETB", "date": today_str},
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["sales_today"]["amount"] == 1200.0
+    assert body["sales_today"]["currency"] == "ETB"
+    assert body["sales_today"]["count"] == 1
+
+
+def test_mixed_currencies_in_expenses_today_triggers_clarification(client):
+    sub = "mixed_expenses_merchant"
+    today_str = business_today().isoformat()
+
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "expense",
+            "data": {"description": "electricity", "amount": 500.0, "currency": "ETB", "date": today_str},
+        },
+        sub=sub,
+    )
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "expense",
+            "data": {"description": "cloud server", "amount": 20.0, "currency": "USD", "date": today_str},
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert body["status"] == "needs_clarification"
+    assert body["error"]["code"] == "NEEDS_CLARIFICATION"
+    assert "currency" in body["missing_fields"]
+
+
+def test_mixed_currencies_in_customer_debt_triggers_clarification_for_single_customer(client):
+    sub = "mixed_debt_single_cust_merchant"
+    today_str = business_today().isoformat()
+
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "customer_debt",
+            "data": {
+                "customer": "Hana",
+                "amount": 800.0,
+                "currency": "ETB",
+                "direction": "owed_to_business",
+                "date": today_str,
+            },
+        },
+        sub=sub,
+    )
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "customer_debt",
+            "data": {
+                "customer": "Hana",
+                "amount": 50.0,
+                "currency": "USD",
+                "direction": "owed_to_business",
+                "date": today_str,
+            },
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert body["status"] == "needs_clarification"
+    assert body["error"]["code"] == "NEEDS_CLARIFICATION"
+    assert "currency" in body["missing_fields"]
+
+
+def test_mixed_currencies_in_customer_debt_triggers_clarification_for_multiple_customers(client):
+    sub = "mixed_debt_multi_cust_merchant"
+    today_str = business_today().isoformat()
+
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "customer_debt",
+            "data": {
+                "customer": "Abebe",
+                "amount": 1000.0,
+                "currency": "ETB",
+                "direction": "owed_to_business",
+                "date": today_str,
+            },
+        },
+        sub=sub,
+    )
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "customer_debt",
+            "data": {
+                "customer": "Sara",
+                "amount": 80.0,
+                "currency": "USD",
+                "direction": "owed_to_business",
+                "date": today_str,
+            },
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 400
+    body = response.json()
+    assert body["success"] is False
+    assert body["status"] == "needs_clarification"
+    assert body["error"]["code"] == "NEEDS_CLARIFICATION"
+    assert "currency" in body["missing_fields"]
+
+
+def test_dashboard_aggregates_consistent_non_default_currency(client):
+    sub = "usd_merchant"
+    today_str = business_today().isoformat()
+
+    # Sales in USD
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "software license", "quantity": 1, "amount": 100.0, "currency": "USD", "date": today_str},
+        },
+        sub=sub,
+    )
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "sale",
+            "data": {"item": "consulting", "quantity": 1, "amount": 50.0, "currency": "USD", "date": today_str},
+        },
+        sub=sub,
+    )
+
+    # Expenses in USD
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "expense",
+            "data": {"description": "domain renewal", "amount": 15.0, "currency": "USD", "date": today_str},
+        },
+        sub=sub,
+    )
+
+    # Debt in USD
+    post_event(
+        client,
+        {
+            "business_id": "ignored",
+            "language": "en",
+            "event_type": "customer_debt",
+            "data": {
+                "customer": "John",
+                "amount": 200.0,
+                "currency": "USD",
+                "direction": "owed_to_business",
+                "date": today_str,
+            },
+        },
+        sub=sub,
+    )
+
+    response = get_dashboard(client, sub=sub)
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["sales_today"]["amount"] == 150.0
+    assert body["sales_today"]["currency"] == "USD"
+    assert body["sales_today"]["count"] == 2
+
+    assert body["expenses_today"]["amount"] == 15.0
+    assert body["expenses_today"]["currency"] == "USD"
+    assert body["expenses_today"]["count"] == 1
+
+    assert body["customer_debt"]["total"] == 200.0
+    assert body["customer_debt"]["currency"] == "USD"
+    assert len(body["customer_debt"]["customers"]) == 1
+    assert body["customer_debt"]["customers"][0]["customer"] == "John"
+    assert body["customer_debt"]["customers"][0]["amount"] == 200.0
+    assert body["customer_debt"]["customers"][0]["currency"] == "USD"

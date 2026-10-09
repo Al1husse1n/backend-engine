@@ -18,8 +18,14 @@ from app.schemas import (
     RecentActivityItem,
     SalesTodayMetric,
 )
-from app.services.normalization import DEFAULT_CURRENCY, normalize_key
-from app.services.query import _as_amount, _normalize_item_name
+from app.services.normalization import DEFAULT_CURRENCY
+from app.services.query import (
+    _as_amount,
+    _customer_balances,
+    _normalize_item_name,
+    _pick_currency,
+    _require_single_currency,
+)
 
 DEFAULT_LOW_STOCK_THRESHOLD = 10.0
 DEFAULT_RECENT_ACTIVITY_LIMIT = 10
@@ -112,17 +118,12 @@ def compute_dashboard_metrics(
         e for e in events
         if e.event_type == "sale" and _is_event_today(e, today)
     ]
+    sales_currency = _pick_currency(sales_today_events)
     sales_amount = sum(
         _as_amount(e.data.get("amount"))
         for e in sales_today_events
         if isinstance(e.data, dict)
     )
-    sales_currencies = {
-        str(e.data.get("currency")).upper()
-        for e in sales_today_events
-        if isinstance(e.data, dict) and e.data.get("currency")
-    }
-    sales_currency = next(iter(sales_currencies)) if len(sales_currencies) == 1 else DEFAULT_CURRENCY
     sales_today = SalesTodayMetric(
         amount=round(sales_amount, 2),
         currency=sales_currency,
@@ -134,17 +135,12 @@ def compute_dashboard_metrics(
         e for e in events
         if e.event_type == "expense" and _is_event_today(e, today)
     ]
+    expenses_currency = _pick_currency(expenses_today_events)
     expenses_amount = sum(
         _as_amount(e.data.get("amount"))
         for e in expenses_today_events
         if isinstance(e.data, dict)
     )
-    expenses_currencies = {
-        str(e.data.get("currency")).upper()
-        for e in expenses_today_events
-        if isinstance(e.data, dict) and e.data.get("currency")
-    }
-    expenses_currency = next(iter(expenses_currencies)) if len(expenses_currencies) == 1 else DEFAULT_CURRENCY
     expenses_today = ExpensesTodayMetric(
         amount=round(expenses_amount, 2),
         currency=expenses_currency,
@@ -152,39 +148,18 @@ def compute_dashboard_metrics(
     )
 
     # 3. Outstanding Customer Debt
-    customer_balances: dict[str, dict[str, Any]] = {}
-    for e in events:
-        if e.event_type != "customer_debt" or not isinstance(e.data, dict):
-            continue
-        raw_customer = e.data.get("customer")
-        if not isinstance(raw_customer, str) or not raw_customer.strip():
-            continue
-        customer_name = raw_customer.strip()
-        cust_key = normalize_key(customer_name)
-
-        row = customer_balances.setdefault(
-            cust_key,
-            {
-                "customer": customer_name,
-                "amount": 0.0,
-                "currencies": set(),
-            },
-        )
-        amt = _as_amount(e.data.get("amount"))
-        direction = e.data.get("direction")
-        if direction == "owed_to_business":
-            row["amount"] += amt
-        elif direction == "owed_by_business":
-            row["amount"] -= amt
-        row["customer"] = customer_name
-        curr = e.data.get("currency") or DEFAULT_CURRENCY
-        row["currencies"].add(str(curr).upper())
+    customer_balances = _customer_balances(events)
+    for r in customer_balances.values():
+        if len(r.get("currencies", set())) > 1:
+            _require_single_currency(r["currencies"])
 
     positive_debtors = [r for r in customer_balances.values() if r["amount"] > 0]
-    all_debtor_currencies = {
-        c for r in positive_debtors for c in r.get("currencies", set())
-    }
-    debt_currency = next(iter(all_debtor_currencies)) if len(all_debtor_currencies) == 1 else DEFAULT_CURRENCY
+    debt_currency = _require_single_currency(
+        {
+            _require_single_currency(set(r.get("currencies") or []))
+            for r in positive_debtors
+        }
+    )
     total_debt = sum(_as_amount(r["amount"]) for r in positive_debtors)
 
     positive_debtors.sort(key=lambda r: r["amount"], reverse=True)
@@ -192,7 +167,7 @@ def compute_dashboard_metrics(
         CustomerDebtBreakdown(
             customer=r["customer"],
             amount=round(r["amount"], 2),
-            currency=next(iter(r["currencies"])) if len(r["currencies"]) == 1 else debt_currency,
+            currency=debt_currency,
         )
         for r in positive_debtors[:top_debtor_limit]
     ]
